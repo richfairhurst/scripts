@@ -10,140 +10,131 @@ import argparse
 from ciscoconfparse import CiscoConfParse
 
 def ipsec_audit():
+	parse = CiscoConfParse(filename)
 	conn.execute('sho run | include set peer')             
 	configured = set( re.findall( r'[0-9]+(?:\.[0-9]+){3}', conn.response ))
 	conn.execute('sho crypto isa peer | include Peer:')
 	live = set( re.findall( r'[0-9]+(?:\.[0-9]+){3}', conn.response ))
 	print '\n'
-	print 'IPSec Audit of Host: ', h
-	print '-----------------------------------'
+	print 'IPSec Audit of Host:\t', h
+	hostname = parse.find_objects(r"^hostname")
+	for obj in hostname:
+		print 'Hostname:\t\t', obj.text.split(' ',1)[1]
+	conn.execute('show ver')
+	ios =  re.search(r'Version[ \t]*([^\n\r]*)',conn.response)
+	print 'IOS:\t\t\t', ios.group()	
+	print '-----------------------------------------------------------------'
 	print '\n'	
 	print 'VPN Connections'
 	print '---------------'	
 	if args.v:
-		print 'Verbose Mode on' 
+		print '\n'
 		for i in configured:
 			if i in live:
 				print 'Endpoint: ', i , ' has a live VPN peer connection'
 			else: 
 				print 'Endpoint: ', i , ' is configured but not live'
-	
-	print 'Total Configured VPN connections: ', len(configured)
-	print 'Total Live VPN Connections: ', len(live)
-	conn.execute('sho run | include crypto isakmp key') 
-	#print conn.response	
-	print 'Total Number of ISAKMP Crypto keys: ', len (conn.response.splitlines())-1	
+		print '\n'
+	print 'Total Configured VPN connections: ','\t\t\t', len(configured)
+	print 'Total Live VPN Connections: ', '\t\t\t\t', len(live)
+	conn.execute('sho run | include crypto isakmp key') 	
+	print 'Total Number of ISAKMP Crypto keys: ','\t\t\t', len (conn.response.splitlines())-1		
+	print '\n'	
+	tunnels = parse.find_objects(r"interface Tunnel")
+	count = 0
+	ipip = 0
+	gre = 0
+	for obj in tunnels:
+		count +=1
+		if obj.re_search_children(r"tunnel mode ipip"):
+			ipip +=1
+			if args.v:
+				print 'Tunnel', obj.text.split('nel',1)[1], "operating in IPIP mode"
+		if obj.re_search_children(r"tunnel mode gre"):
+			gre +=1	
+			if args.v:
+				print 'Tunnel', obj.text.split('nel',1)[1], "operating in GRE mode"
+			print '\n'
+	print 'Total Number of Tunnels Interfaces: \t\t\t', count
+	print 'Total Number of Tunnels Interfaces in IPIP Mode: \t', ipip
+	print 'Total Number of Tunnels Interfaces in GRE Mode: \t', gre
 	print '\n'
+
+
 	print 'ISAKMP Attributes'
-	print '----------------'
-	parse = CiscoConfParse(filename)
-	
-	#print 'Priority\tAuth\tDH Group\tEncryption\tHash\tMode\tLife'
-	#print '--------\t----\t--------\t----------\t----\t----\t----'	
-	#print '10\t\tPSK\tGroup2\t\t3DES\t\tMD5\tAggr\t1440mins'	
-	#print '\n'
+	print '-----------------'
 	dict = {'Priority':'', 'Auth':'', 'DH':'', 'Encryption':'', 'Hash':'', 'Mode':'', 'Life':''}
 
-	isakmp_policy = parse.find_objects(r"^crypto isakmp policy")
-	
+	isakmp_policy = parse.find_objects(r"^crypto isakmp policy")	
+	print 'Priority\tAuth\t\tDH Group\tEncryption\tHash\tMode\tLifetime'
 	for obj in isakmp_policy:
 		dict['Priority'] = obj.text.split(' ',3)[3]
 		# Encryption	
 		if obj.re_search_children(r"encr DES"):
-			#print 'ISAKMP Policy',obj.text.split(' ',3)[3], 'Has DES as encryption'
 			dict['Encryption'] = 'DES'
 		if obj.re_search_children(r"encr 3des"):
-			#print 'ISAKMP Policy',obj.text.split(' ',3)[3], 'Has 3DES as encryption'
 			dict['Encryption'] = '3DES'
 		if obj.re_search_children(r"aes 256"):
-			#print 'ISAKMP Policy',obj.text.split(' ',3)[3], 'Has AES 256 as encryption'
 			dict['Encryption'] = 'AES256'
 		if obj.re_search_children(r"encr aes 192"):
-			#print 'ISAKMP Policy',obj.text.split(' ',3)[3], 'Has AES 192 as encryption'
 			dict['Encryption'] = 'AES192'
 		if obj.re_search_children(r"encr aes 256"):
-			#print 'ISAKMP Policy',obj.text.split(' ',3)[3], 'Has AES 256 as encryption'
 			dict['Encryption'] = 'AES256'
 		
 		# HASH	
 		if obj.re_search_children(r"hash md5"):
-			#print 'ISAKMP Policy',obj.text.split(' ',3)[3], 'Has MD5 Authentication'
 			dict['Hash'] = 'MD5'
 		if obj.re_search_children(r"hash sha1"):
-			#print 'ISAKMP Policy',obj.text.split(' ',3)[3], 'Has SHA1 Authentication'
 			dict['Hash'] = 'SHA1'
 		if obj.re_search_children(r"hash sha256"):
-			#print 'ISAKMP Policy',obj.text.split(' ',3)[3], 'Has SHA256 Authentication'
 			dict['Hash'] = 'SHA256'
 		if not obj.re_search_children(r"hash"):	
-			print 'SHA1'
+			dict['Hash'] = 'SHA1'
 	
 		# DH Group
 		if obj.re_search_children(r"group 1"):
-			#print 'ISAKMP Policy',obj.text.split(' ',3)[3], 'Has DG Group 1'
 			dict['DH'] = '1'
 		if obj.re_search_children(r"group 2"):
-			#print 'ISAKMP Policy',obj.text.split(' ',3)[3], 'Has DG Group 2'
 			dict['DH'] = '2'
 		if obj.re_search_children(r"group 3"):
-			#print 'ISAKMP Policy',obj.text.split(' ',3)[3], 'Has DG Group 3'
 			dict['DH'] = '3'
 		if obj.re_search_children(r"group 14"):
-			#print 'ISAKMP Policy',obj.text.split(' ',3)[3], 'Has DG Group 14'
 			dict['DH'] = '14'
 
 		# Authentication Method
 		if obj.re_search_children(r"authentication pre-share"):
-			#print 'ISAKMP Policy',obj.text.split(' ',3)[3], 'Has Pre-Share Authentication'
 			dict['Auth'] = 'Pre-Share'
 		if obj.re_search_children(r"authentication rsa"):
-			#print 'ISAKMP Policy',obj.text.split(' ',3)[3], 'Has RSA Authentication'
 			dict['Auth'] = 'RSA'
 		
 		# Main mode vs Aggressive Mode
 		if obj in parse.find_objects(r"isakmp am-disable"):
-			#print 'Phase 1 ISAKMP negotiations uses aggressive mode'
 			dict['Mode'] = 'AGGR'
 		else:
-			#print 'Phase 1 ISAKMP negotiations uses main mode'
 			dict['Mode'] = 'Main'
 
 		# Lifetime
-	# The lifetime of the SA, 500 seconds in this case, is shown in this command. 
-	# If you do not set a lifetime, it defaults to 86400 seconds, or one day. 
-	# When the lifetime timer fires, the SA is renegotiated as a security measure.
-	# dt3-45a(config-isakmp)#lifetime 500
-		
 		#if obj.has_child_with(r'lifetime'):
-		#if obj.re_search_children(r"lifetime"):
-		#	print 'ISAKMP Policy',obj.text.split(' ',3)[3], 'Has Pre-Share Authentication'
+		#if obj.re_search_children(r"lifetime"):		
 		#	dict['Life'] = '86400'
 		#else:
 		#	print 'pants section not impletemented yet'
-
-
-		print 'Priority\tAuth\t\tDH Group\tEncryption\tHash\tMode\tLife'
-		print '--------\t----\t\t--------\t----------\t----\t----\t----'	
-		print dict['Priority'],'\t\t',dict['Auth'],'\t',dict['DH'],'\t\t',dict['Encryption'],'\t\t',dict['Hash'],'\t',dict['Mode'],'\t',dict['Life']	
-		print '\n'
 	
-	print '\n'	
-	print 'Tunnels'	
-	print '-------'
-	tunnels = parse.find_objects(r"interface Tunnel")
-	for obj in tunnels:
-		if obj.re_search_children(r"tunnel mode ipip"):
-			#print obj.text.split(' ',1)[1], "operating in IPINIP mode"
-			print 'Tunnel', obj.text.split('nel',1)[1], "operating in IPINIP mode"
-		if obj.re_search_children(r"tunnel mode gre"):
-			#print obj.text.split(' ',1)[1], "operating in GRE mode"
-			print 'Tunnel', obj.text.split('nel',1)[1], "operating in GRE mode"
+		print dict['Priority'],'\t\t',dict['Auth'],'\t',dict['DH'],'\t\t',dict['Encryption'],'\t\t',dict['Hash'],'\t',dict['Mode'],'\t',dict['Life']	
+
 	print '\n'
-	'''
-	To Add:
-	Weak IPSec Authentication Keys
-	Weak VPN Authentication Hashing Algorithm Configured:
-	'''
+	transport_policy = parse.find_objects(r"^crypto ipsec transform-set")
+	dict = {'Name':'', 'ESP Encryption':'', 'ESP Authentication':''}
+	print 'Transform Sets'
+	print '--------------'	
+	print 'Name\t\tESP Encryption\tESP Authentication'	
+	for obj in transport_policy:
+		dict['Name'] = obj.text.split(' ',5)[3]
+		dict['ESP Encryption'] =obj.text.split(' ',5)[4]
+		dict['ESP Authentication'] = obj.text.split(' ',5)[5]	
+		print dict['Name'],'\t',dict['ESP Encryption'],'\t',dict['ESP Authentication']
+	print '\n'	
+
 
 def config_audit():
 	print '\n'
@@ -210,6 +201,3 @@ for h in hosts:
 # close args.filename
 # if args.output:
 # 	close output
-
-
- 
