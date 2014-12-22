@@ -1,15 +1,47 @@
 #!/usr/bin/python
 
+import argparse
+import re
+import sys
+import threading
+from ciscoconfparse import CiscoConfParse
+from Exscript import Account
 from Exscript.protocols.drivers import ios
 from Exscript.protocols import Telnet
 from Exscript.util.file import get_hosts_from_file
-from Exscript import Account
 from Exscript.util.start import start
-import re
-import argparse
-from ciscoconfparse import CiscoConfParse
 
-def ipsec_audit():
+
+def ipsec_audit(h, connection, account, Verbose):
+
+	if connection == 'Telnet':
+		conn = Telnet()
+	elif connection == 'SSH':
+		conn = SSH2()
+	else:
+		conn = SSH2()
+
+	conn.set_driver('ios')
+
+	try:
+		conn.connect(str(h))
+ 		conn.login(account)
+
+	except Exception, e:
+		print 'Error:', e
+		sys.exit()
+	
+	conn.execute('terminal length 0')
+	conn.execute('show run')
+	conf = conn.response
+	
+	# save config to file
+	filename = h+'.conf'
+	conf_file = open(filename,"w")
+	conf_file.write(conf)
+	conf_file.close()
+
+
 	parse = CiscoConfParse(filename)
 	conn.execute('sho run | include set peer')             
 	configured = set( re.findall( r'[0-9]+(?:\.[0-9]+){3}', conn.response ))
@@ -22,12 +54,13 @@ def ipsec_audit():
 		print 'Hostname:\t\t', obj.text.split(' ',1)[1]
 	conn.execute('show ver')
 	ios =  re.search(r'Version[ \t]*([^\n\r]*)',conn.response)
+
 	print 'IOS:\t\t\t', ios.group()	
 	print '-----------------------------------------------------------------'
 	print '\n'	
 	print 'VPN Connections'
 	print '---------------'	
-	if args.v:
+	if Verbose:
 		print '\n'
 		for i in configured:
 			if i in live:
@@ -48,11 +81,11 @@ def ipsec_audit():
 		count +=1
 		if obj.re_search_children(r"tunnel mode ipip"):
 			ipip +=1
-			if args.v:
+			if Verbose:
 				print 'Tunnel', obj.text.split('nel',1)[1], "operating in IPIP mode"
 		if obj.re_search_children(r"tunnel mode gre"):
 			gre +=1	
-			if args.v:
+			if Verbose:
 				print 'Tunnel', obj.text.split('nel',1)[1], "operating in GRE mode"
 			print '\n'
 	print 'Total Number of Tunnels Interfaces: \t\t\t', count
@@ -69,6 +102,7 @@ def ipsec_audit():
 	print 'Priority\tAuth\t\tDH Group\tEncryption\tHash\tMode\tLifetime'
 	for obj in isakmp_policy:
 		dict['Priority'] = obj.text.split(' ',3)[3]
+
 		# Encryption	
 		if obj.re_search_children(r"encr DES"):
 			dict['Encryption'] = 'DES'
@@ -118,7 +152,7 @@ def ipsec_audit():
 		#if obj.re_search_children(r"lifetime"):		
 		#	dict['Life'] = '86400'
 		#else:
-		#	print 'pants section not impletemented yet'
+		#	print 'pants - section not implemented yet'
 	
 		print dict['Priority'],'\t\t',dict['Auth'],'\t',dict['DH'],'\t\t',dict['Encryption'],'\t\t',dict['Hash'],'\t',dict['Mode'],'\t',dict['Life']	
 
@@ -134,70 +168,46 @@ def ipsec_audit():
 		dict['ESP Authentication'] = obj.text.split(' ',5)[5]	
 		print dict['Name'],'\t',dict['ESP Encryption'],'\t',dict['ESP Authentication']
 	print '\n'	
-
-
-def config_audit():
-	print '\n'
-	print 'Config Audit of Host: ', h
-	print 'Nothing implemented yet'	
-	print '\n'
 	
-	'''
-	To Add:
-	* Administration Access With No Host Restrictions
-	* RADIUS Servers Configured With No Key
-	* No Inbound TCP Connection Keep-Alives
-	* No Syslog Logging Configured
-	* SNMP Version (< 3 = cleartext)
-	* ACL Does Not End with Deny All And Log
-	* EIGRP Authentication
-	* AAA settings
-	'''
-
-
-parser = argparse.ArgumentParser()
-
-parser.add_argument('-u', action='store', dest='username', required=True, help='Username to log into Router')		
-parser.add_argument('-p', action='store', dest='password', required=True, help='Password to log into Router')
-parser.add_argument('-f', action='store', dest='filename', required=True, help='File with list of Router IP Addresses')
-parser.add_argument('-v', action='store_true', default=False, help='Enable verbose Output')
-parser.add_argument('-a', action='store', dest='audit', required=True, default='ipsec', help='Audit type supposed so far: "ipsec","config" or "all"')
-parser.add_argument('-t', action='store', dest='conn_type', required=False, default='telnet', help='Connection method - Telnet or SSH, default is telnet')
-parser.add_argument('-o', action='store', dest='output', required=False, help='File to log output to')
-
-args = parser.parse_args()
-account = Account(args.username,args.password)
-if args.conn_type.lower() == 'telnet':
-	conn = Telnet()
-else: 
-	conn = SSH2()
-conn.set_driver('ios')
-
-#if args.output:
-# 	outfile = open(args.output,'w')
-
-hosts = open(args.filename).read().splitlines()
-for h in hosts:
-	conn.connect(str(h))
-	conn.login(account)
-# 	if Error print 'Error - username and/or password wrong'
-	conn.execute('terminal length 0')
-	conn.execute('show run')
-	conf = conn.response
-	# save config to file
-	filename = h+'.conf'
-	conf_file = open(filename,"w")
-	conf_file.write(conf)
-	conf_file.close()
-	if args.audit == 'ipsec':
-		ipsec_audit()
-	elif args.audit == 'config':
-		config_audit()
-#	elif args.audit == 'all':
-#		ipsec_audit()
-#		config_audit()
 	conn.send('exit\r')
 	conn.close() 
-# close args.filename
-# if args.output:
-# 	close output
+
+def main():
+
+	Verbose = False
+
+	parser = argparse.ArgumentParser()
+
+	parser.add_argument('-u', action='store', dest='username', required=True, help='Username to log into Router')		
+	parser.add_argument('-p', action='store', dest='password', required=True, help='Password to log into Router')
+	parser.add_argument('-f', action='store', dest='filename', required=True, help='File with list of Router IP Addresses')
+	parser.add_argument('-v', action='store_true', default=False, help='Enable verbose Output')
+	parser.add_argument('-a', action='store', dest='audit', required=True, default='ipsec', help='Audit type supposed so far: "ipsec","config" or "all"')
+	parser.add_argument('-t', action='store', dest='conn_type', required=False, default='telnet', help='Connection method - Telnet or SSH, default is telnet')
+
+	args = parser.parse_args()
+	account = Account(args.username,args.password)
+
+	if args.conn_type.lower() == 'telnet':
+		connection = 'Telnet'
+	else: 
+		connection = 'SSH'
+
+	if args.v:
+		Verbose = True
+
+	threads =[]
+	hosts = open(args.filename).read().splitlines()
+	for h in hosts:
+		t = threading.Thread(target=ipsec_audit, args=(h,connection,account,Verbose))
+		threads.append(t)
+	
+	for thread in threads:
+		thread.start()
+	for thread in threads:
+		thread.join()		
+
+if __name__ == '__main__':
+    main()
+
+
