@@ -1,11 +1,12 @@
 #!/usr/bin/python
 
-from netaddr import *
+
 import urllib2
 import re
 import sys
 import threading
 from bs4 import BeautifulSoup
+from netaddr import *
 
 LOCK = threading.Lock()
 
