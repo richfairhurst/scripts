@@ -1,0 +1,17 @@
+# Ignore IDE specific files
+.idea/
+.vscode/
+
+# Ignore Logs
+logs
+*.log
+
+# The file containing environment variables 
+.env
+
+# OS or Editor folders
+.DS_Store
+._*
+Thumbs.db
+.gitignorewq
+
